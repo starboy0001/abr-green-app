@@ -8,13 +8,18 @@ import 'package:property_project/Screens/Drawer/my_applications_Screen.dart';
 import 'package:property_project/res/app_urls.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'Drawer/lucky_draw_screen.dart';
+import 'lucky_draw_apply_screen.dart';
 
 class _SoldOutProject {
   final String name;
   final String image;
+  final String status;
 
-  const _SoldOutProject({required this.name, required this.image});
+  const _SoldOutProject({
+    required this.name,
+    required this.image,
+    this.status = 'SOLD OUT',
+  });
 }
 
 class HomeScreen extends StatefulWidget {
@@ -51,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   ];
 
+  List<_SoldOutProject> homeProjects = _soldOutProjects;
   Map<String, dynamic> appSettings = {};
   String customerName = '';
   int? profileCompletion;
@@ -90,12 +96,32 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       final data = decoded['data'];
-      final settings = data is Map<String, dynamic>
-          ? data['app_settings']
-          : null;
+      final settings =
+          data is Map<String, dynamic> ? data['app_settings'] : null;
       if (!mounted || settings is! Map<String, dynamic>) return;
 
-      setState(() => appSettings = settings);
+      final rawProjects = settings['home_projects'];
+      final configuredProjects = rawProjects is List
+          ? rawProjects
+              .whereType<Map>()
+              .map((project) {
+                return _SoldOutProject(
+                  name: project['name']?.toString() ?? '',
+                  image: project['image']?.toString() ?? '',
+                  status: project['status']?.toString() == 'AVAILABLE'
+                      ? 'AVAILABLE'
+                      : 'SOLD OUT',
+                );
+              })
+              .where((project) =>
+                  project.name.isNotEmpty && project.image.isNotEmpty)
+              .toList()
+          : null;
+
+      setState(() {
+        appSettings = settings;
+        if (configuredProjects != null) homeProjects = configuredProjects;
+      });
     } catch (error) {
       debugPrint('Home banner images could not be loaded: $error');
     }
@@ -142,6 +168,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  String _dashboardImageUrl(String imagePath) {
+    final uri = Uri.tryParse(imagePath);
+    if (uri != null && uri.hasScheme) return imagePath;
+    return Uri.parse(AppUrl.imageBaseUrl).resolve(imagePath).toString();
+  }
+
   Widget _buildHeader() {
     final bannerPath = appSettings['dashboard_image_1']?.toString();
     final firstName = customerName.isEmpty
@@ -156,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           if (bannerPath != null && bannerPath.isNotEmpty)
             CachedNetworkImage(
-              imageUrl: Uri.parse(AppUrl.imageBaseUrl).resolve(bannerPath).toString(),
+              imageUrl: _dashboardImageUrl(bannerPath),
               fit: BoxFit.cover,
               errorWidget: (context, url, error) => const SizedBox.shrink(),
             )
@@ -244,8 +276,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           value: completion == null ? 0 : completion / 100,
                           strokeWidth: 4,
                           backgroundColor: Colors.white.withValues(alpha: 0.3),
-                          valueColor:
-                              const AlwaysStoppedAnimation<Color>(Color(0xFFFFC928)),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                              Color(0xFFFFC928)),
                         ),
                         Text(
                           completion == null ? '--' : '$completion%',
@@ -275,6 +307,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildProjectCard(_SoldOutProject project) {
     final cardWidth = MediaQuery.sizeOf(context).width - 40;
+    final isSoldOut = project.status == 'SOLD OUT';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 18),
@@ -298,11 +331,24 @@ class _HomeScreenState extends State<HomeScreen> {
             height: cardWidth * 0.68,
             child: ColoredBox(
               color: const Color(0xFFF1F2F0),
-              child: Image.asset(
-                project.image,
-                fit: BoxFit.contain,
-                alignment: Alignment.center,
-              ),
+              child: project.image.startsWith('assets/')
+                  ? Image.asset(
+                      project.image,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                    )
+                  : CachedNetworkImage(
+                      imageUrl: project.image,
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                      errorWidget: (context, url, error) => const Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: Color(0xFF89928D),
+                          size: 42,
+                        ),
+                      ),
+                    ),
             ),
           ),
           SizedBox(
@@ -328,14 +374,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFEEEE),
+                      color: isSoldOut
+                          ? const Color(0xFFFFEEEE)
+                          : const Color(0xFFE9F6EC),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFF2BABA)),
+                      border: Border.all(
+                        color: isSoldOut
+                            ? const Color(0xFFF2BABA)
+                            : const Color(0xFFB7DEC0),
+                      ),
                     ),
-                    child: const Text(
-                      'SOLD OUT',
+                    child: Text(
+                      project.status,
                       style: TextStyle(
-                        color: Color(0xFFB42318),
+                        color: isSoldOut
+                            ? const Color(0xFFB42318)
+                            : const Color(0xFF287641),
                         fontSize: 11,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.5,
@@ -361,7 +415,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => const LuckyDrawScreen(item: 'LUCKY DRAW'),
+            builder: (context) => const LuckyDrawApplyScreen(),
           ),
         ),
         child: ClipRRect(
@@ -401,8 +455,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.auto_awesome,
-                            color: _gold, size: 25),
+                        const Icon(Icons.auto_awesome, color: _gold, size: 25),
                         const SizedBox(width: 9),
                         const Expanded(
                           child: Text(
@@ -446,11 +499,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 7),
                     const Text(
-                      'Explore our sold-out communities.',
+                      'Discover ABR Greens communities.',
                       style: TextStyle(color: _muted, fontSize: 14),
                     ),
                     const SizedBox(height: 20),
-                    ..._soldOutProjects.map(_buildProjectCard),
+                    ...homeProjects.map(_buildProjectCard),
                   ],
                 ),
               ),

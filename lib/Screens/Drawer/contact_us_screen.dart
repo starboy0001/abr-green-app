@@ -1,16 +1,68 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../Constants/colors.dart';
 import '../../Constants/constants.dart';
 import '../../Constants/reusable_widgets.dart';
+import '../../res/app_urls.dart';
 
-class ContactUsScreen extends StatelessWidget {
+class ContactUsScreen extends StatefulWidget {
   const ContactUsScreen({super.key});
 
+  @override
+  State<ContactUsScreen> createState() => _ContactUsScreenState();
+}
+
+class _ContactUsScreenState extends State<ContactUsScreen> {
   static const _titleColor = Color(0xFF101A35);
   static const _labelColor = Color(0xFFE75325);
   static const _iconBackground = Color(0xFFFFF3E9);
+
+  Map<String, dynamic> _contactDetails = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadContactDetails();
+  }
+
+  Future<void> _loadContactDetails() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken');
+      if (token == null || token.isEmpty) return;
+
+      final response = await http.post(
+        Uri.parse(AppUrl.contactDetails),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw Exception(
+            'Contact details request failed (${response.statusCode}).');
+      }
+
+      final decoded = json.decode(response.body);
+      final data = decoded is Map<String, dynamic> ? decoded['data'] : null;
+      final settings =
+          data is Map<String, dynamic> ? data['app_settings'] : null;
+      if (!mounted || settings is! Map<String, dynamic>) return;
+      setState(() => _contactDetails = settings);
+    } catch (error) {
+      debugPrint('Contact details could not be loaded: $error');
+    }
+  }
+
+  String _value(String key, String fallback) {
+    final value = _contactDetails[key]?.toString().trim();
+    return value == null || value.isEmpty ? fallback : value;
+  }
 
   Future<void> _launch(Uri uri, BuildContext context) async {
     if (!await launchUrl(uri)) {
@@ -104,16 +156,21 @@ class ContactUsScreen extends StatelessWidget {
                     _contactRow(
                       icon: Icons.location_on,
                       label: 'Address:',
-                      value:
-                          'C18, Sector 13, Vasundhara, Ghaziabad, Uttar Pradesh 201012',
+                      value: _value(
+                        'contact_address',
+                        'C18, Sector 13, Vasundhara, Ghaziabad, Uttar Pradesh 201012',
+                      ),
                     ),
                     const SizedBox(height: 22),
                     _contactRow(
                       icon: Icons.email,
                       label: 'Email:',
-                      value: 'crm.abrgreens@gmail.com',
+                      value: _value('contact_email', 'crm.abrgreens@gmail.com'),
                       onTap: () => _launch(
-                        Uri(scheme: 'mailto', path: 'crm.abrgreens@gmail.com'),
+                        Uri(
+                            scheme: 'mailto',
+                            path: _value(
+                                'contact_email', 'crm.abrgreens@gmail.com')),
                         context,
                       ),
                     ),
@@ -121,9 +178,11 @@ class ContactUsScreen extends StatelessWidget {
                     _contactRow(
                       icon: Icons.call,
                       label: 'Phone:',
-                      value: '7428502666',
+                      value: _value('contact_phone', '7428502666'),
                       onTap: () => _launch(
-                        Uri(scheme: 'tel', path: '7428502666'),
+                        Uri(
+                            scheme: 'tel',
+                            path: _value('contact_phone', '7428502666')),
                         context,
                       ),
                     ),
@@ -131,11 +190,17 @@ class ContactUsScreen extends StatelessWidget {
                     _contactRow(
                       icon: Icons.camera_alt,
                       label: 'Instagram:',
-                      value: 'abrgreensofficial',
+                      value: _value(
+                        'contact_instagram',
+                        'abrgreensofficial',
+                      ),
                       iconColor: const Color(0xFFC52E9B),
                       onTap: () => _launch(
                         Uri.parse(
-                          'https://www.instagram.com/abrgreensofficial/',
+                          _value(
+                            'contact_instagram',
+                            'https://www.instagram.com/abrgreensofficial/',
+                          ),
                         ),
                         context,
                       ),
@@ -144,10 +209,16 @@ class ContactUsScreen extends StatelessWidget {
                     _contactRow(
                       icon: Icons.facebook,
                       label: 'Facebook:',
-                      value: 'ABR Greens Infrastructure',
+                      value: _value(
+                        'contact_facebook',
+                        'ABR Greens Infrastructure',
+                      ),
                       iconColor: const Color(0xFF1877F2),
                       onTap: () => _launch(
-                        Uri.parse('https://www.facebook.com/'),
+                        Uri.parse(_value(
+                          'contact_facebook',
+                          'https://www.facebook.com/',
+                        )),
                         context,
                       ),
                     ),

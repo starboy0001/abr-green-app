@@ -1,17 +1,66 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../Constants/colors.dart';
 import '../../Constants/constants.dart';
 import '../../Constants/reusable_widgets.dart';
+import '../../res/app_urls.dart';
 
-class AboutUsScreen extends StatelessWidget {
+class AboutUsScreen extends StatefulWidget {
   final String item;
 
   const AboutUsScreen({super.key, required this.item});
 
+  @override
+  State<AboutUsScreen> createState() => _AboutUsScreenState();
+}
+
+class _AboutUsScreenState extends State<AboutUsScreen> {
   static const _navy = Color(0xFF101A35);
   static const _muted = Color(0xFF68758A);
   static const _orange = Color(0xFFEF5B24);
+
+  String _aboutText =
+      'ABR Greens Infrastructure is a real estate investment and property development company with 10+ years of industry experience, creating high-value, low-investment opportunities across India and emerging states.';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAboutText();
+  }
+
+  Future<void> _loadAboutText() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken');
+      if (token == null || token.isEmpty) return;
+
+      final response = await http.post(
+        Uri.parse(AppUrl.about),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw Exception('About Us request failed (${response.statusCode}).');
+      }
+
+      final decoded = json.decode(response.body);
+      final data = decoded is Map<String, dynamic> ? decoded['data'] : null;
+      final settings =
+          data is Map<String, dynamic> ? data['app_settings'] : null;
+      final aboutText =
+          settings is Map<String, dynamic> ? settings['about_us'] : null;
+      if (!mounted || aboutText is! String || aboutText.trim().isEmpty) return;
+      setState(() => _aboutText = aboutText);
+    } catch (error) {
+      debugPrint('About Us content could not be loaded: $error');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,7 +106,8 @@ class AboutUsScreen extends StatelessWidget {
               icon: Icons.emoji_events_rounded,
               title: '10+ YEARS',
               subtitle: 'Management Experience',
-              description: 'Backed by industry experience and a dedicated team.',
+              description:
+                  'Backed by industry experience and a dedicated team.',
               background: const Color(0xFFF5F0FC),
               iconBackground: const Color(0xFFEDE1FA),
               iconColor: const Color(0xFFAA69DB),
@@ -117,8 +167,8 @@ class AboutUsScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'ABR Greens Infrastructure is a real estate investment and property development company with 10+ years of industry experience, creating high-value, low-investment opportunities across India and emerging states.',
+              Text(
+                _aboutText,
                 style: TextStyle(
                   color: _muted,
                   fontSize: 15,
