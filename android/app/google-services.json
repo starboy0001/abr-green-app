@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1004864599417",
+    "project_id": "abrgreens-infrastructure",
+    "storage_bucket": "abrgreens-infrastructure.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004864599417:android:59cea1a1e9afd413e32ba8",
+        "android_client_info": {
+          "package_name": "com.infrastructure.AbrGreens"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhBC1I6gUK5817WXw1YEU6DSxGyt73ffw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004864599417:android:59cea1a1e9afd413e32ba9",
+        "android_client_info": {
+          "package_name": "com.example.property_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBhBC1I6gUK5817WXw1YEU6DSxGyt73ffw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
