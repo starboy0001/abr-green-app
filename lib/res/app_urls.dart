@@ -28,6 +28,8 @@ class AppUrl {
       baseUrl + 'customer/application/get-customer-application';
   static var applicationPaymentReceipt =
       baseUrl + 'customer/application/payment-receipt';
+  static var downloadPaymentReceipt =
+      baseUrl + 'customer/application/download-receipt';
   static var displayImagesInGallery = baseUrl + 'customer/mobile-image-gallery';
   static var displayVideosInVideos = baseUrl + 'customer/mobile-video-gallery';
   static var receiptData = baseUrl + 'customer/reciept';
@@ -47,6 +49,7 @@ class AppUrl {
   static var getProjects = baseUrl + 'customer/projects';
   static var getAgents = baseUrl + 'customer/agent';
   static var createSiteVisit = baseUrl + 'customer/site-visit/create';
+  static var allotmentLetterData = baseUrl + 'customer/allotment-letter/data';
   static var allotmentletter = baseUrl + 'customer/allotment-letter/download';
   static var fcmtokenPush = baseUrl + 'customer/notification/start';
 }

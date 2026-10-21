@@ -8,6 +8,7 @@ import '../../Constants/colors.dart';
 import '../../Constants/constants.dart';
 import '../../Constants/reusable_widgets.dart';
 import '../../res/app_urls.dart';
+import '../payment_receipt_screen.dart';
 
 class PaymentScreen extends StatefulWidget {
   final String item;
@@ -110,6 +111,96 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 _kotakImageUrl,
                 _kotakScreenshot,
                 screenWidth,
+              ),
+            ),
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 20, 16, 36),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFD4AF37), width: 1.2),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x140F172A),
+                    blurRadius: 16,
+                    offset: Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.receipt_long_rounded,
+                            color: Color(0xFF996515), size: 26),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Payment Completed?',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            SizedBox(height: 3),
+                            Text(
+                              'Submit transaction reference & download official ISCDP receipt.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const PaymentReceiptScreen(
+                              applicationId: 1,
+                              application: {},
+                            ),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0F172A),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 3,
+                      ),
+                      icon: const Icon(Icons.verified_rounded,
+                          color: Color(0xFFD4AF37), size: 20),
+                      label: const Text(
+                        'View & Download Payment Receipt',
+                        style: TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

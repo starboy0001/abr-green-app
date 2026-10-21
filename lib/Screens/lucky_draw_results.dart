@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../Constants/colors.dart';
-import '../Constants/constants.dart';
+import '../res/app_urls.dart';
 import 'Classes/lucky_draw.dart';
 
 class LuckyDrawResult extends StatefulWidget {
-  final List<LuckyDraw> luckyDrawList;
-  const LuckyDrawResult(this.luckyDrawList, {super.key});
+  final List<LuckyDraw>? luckyDrawList;
+  const LuckyDrawResult([this.luckyDrawList, Key? key]) : super(key: key);
 
   @override
   State<LuckyDrawResult> createState() => _LuckyDrawResultState();
@@ -27,19 +30,61 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
 
   bool spinner = true;
   String searchQuery = '';
+  List<LuckyDraw> allWinners = [];
   List<LuckyDraw> filteredLuckyDrawList = [];
 
   @override
   void initState() {
     super.initState();
-    filteredLuckyDrawList = widget.luckyDrawList;
-    Timer(const Duration(milliseconds: 300), () {
+    if (widget.luckyDrawList != null && widget.luckyDrawList!.isNotEmpty) {
+      allWinners = List.from(widget.luckyDrawList!);
+      filteredLuckyDrawList = allWinners;
+      Timer(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            spinner = false;
+          });
+        }
+      });
+    } else {
+      _fetchDeclaredWinners();
+    }
+  }
+
+  Future<void> _fetchDeclaredWinners() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final accessToken = prefs.getString('accessToken') ?? '';
+      final response = await http.post(
+        Uri.parse(AppUrl.luckyDrawResults),
+        headers: {
+          if (accessToken.isNotEmpty) 'Authorization': 'Bearer $accessToken',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final decoded = json.decode(response.body);
+        if (decoded is Map<String, dynamic> && decoded['data'] is Map<String, dynamic>) {
+          final rawWinners = decoded['data']['luckyDraws'];
+          if (rawWinners is List) {
+            allWinners = rawWinners
+                .whereType<Map<String, dynamic>>()
+                .map(LuckyDraw.fromJson)
+                .toList();
+            filteredLuckyDrawList = allWinners;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching declared winners: $e');
+    } finally {
       if (mounted) {
         setState(() {
           spinner = false;
         });
       }
-    });
+    }
   }
 
   String formatDateTime(String dateTimeString) {
@@ -56,19 +101,91 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
     setState(() {
       searchQuery = query;
       if (query.trim().isEmpty) {
-        filteredLuckyDrawList = widget.luckyDrawList;
+        filteredLuckyDrawList = allWinners;
       } else {
         final q = query.toLowerCase().trim();
-        filteredLuckyDrawList = widget.luckyDrawList.where((luckyDraw) {
-          final fullName = '${luckyDraw.name} ${luckyDraw.surname}'.toLowerCase();
-          final plot = luckyDraw.allottedPlot.toLowerCase();
+        filteredLuckyDrawList = allWinners.where((luckyDraw) {
+          final fullName = luckyDraw.displayName.toLowerCase();
+          final custom = luckyDraw.displayCustomText.toLowerCase();
           final ticket = luckyDraw.ticketNo.toLowerCase();
+          final plot = luckyDraw.allottedPlot.toLowerCase();
           final proj = luckyDraw.projectName.toLowerCase();
-          final disc = luckyDraw.discountAmount.toLowerCase();
-          return fullName.contains(q) || plot.contains(q) || ticket.contains(q) || proj.contains(q) || disc.contains(q);
+          return fullName.contains(q) ||
+              custom.contains(q) ||
+              ticket.contains(q) ||
+              plot.contains(q) ||
+              proj.contains(q);
         }).toList();
       }
     });
+  }
+
+  Widget _buildUserImage(LuckyDraw item) {
+    final hasNetworkImage = item.imageUrl.trim().isNotEmpty &&
+        (item.imageUrl.startsWith('http://') ||
+            item.imageUrl.startsWith('https://'));
+
+    if (hasNetworkImage) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Image.network(
+          item.imageUrl.trim(),
+          width: 56,
+          height: 56,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _buildInitialsAvatar(item),
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            return Container(
+              width: 56,
+              height: 56,
+              color: const Color(0xFFF1F5F9),
+              child: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: orangeAccent),
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+    return _buildInitialsAvatar(item);
+  }
+
+  Widget _buildInitialsAvatar(LuckyDraw item) {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFFF97316)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [
+          BoxShadow(
+            color: orangeAccent.withValues(alpha: 0.25),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          item.initials,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 18,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -78,9 +195,13 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
       appBar: AppBar(
         centerTitle: false,
         elevation: 0,
-        title: Text(
-          'Plot Discount Winners',
-          style: appThemeTextWhiteC,
+        title: const Text(
+          'Draw Declared',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 19,
+          ),
         ),
         flexibleSpace: Container(
           decoration: const BoxDecoration(
@@ -94,7 +215,7 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
             )
           : Column(
               children: [
-                // Top Banner: Next Draw Date
+                // TOP BANNER: DRAW DECLARED STATUS & COUNT
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -109,13 +230,13 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                   child: Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(9),
                         decoration: BoxDecoration(
-                          color: luxuryGold.withValues(alpha: 0.15),
+                          color: luxuryGold.withValues(alpha: 0.18),
                           shape: BoxShape.circle,
                           border: Border.all(color: luxuryGold.withValues(alpha: 0.5)),
                         ),
-                        child: const Icon(Icons.event_available_rounded, color: brightGold, size: 20),
+                        child: const Icon(Icons.emoji_events_rounded, color: brightGold, size: 22),
                       ),
                       const SizedBox(width: 12),
                       const Expanded(
@@ -123,7 +244,7 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'NEXT LUCKY DRAW DATE & TIME',
+                              'OFFICIAL LUCKY DRAW RESULTS',
                               style: TextStyle(
                                 fontSize: 10.5,
                                 fontWeight: FontWeight.w800,
@@ -133,10 +254,10 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                             ),
                             SizedBox(height: 2),
                             Text(
-                              '22 October 2026 5:00 PM',
+                              'Draw Declared (ड्रॉ डिक्लेयर्ड)',
                               style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
                                 color: Colors.white,
                                 letterSpacing: 0.3,
                               ),
@@ -145,16 +266,16 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          color: emeraldDiscount.withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: emeraldDiscount.withValues(alpha: 0.5)),
+                          color: emeraldDiscount.withValues(alpha: 0.20),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: emeraldDiscount.withValues(alpha: 0.6)),
                         ),
                         child: Text(
-                          '${widget.luckyDrawList.length} Winners',
+                          '${allWinners.length} Winners',
                           style: const TextStyle(
-                            fontSize: 11.5,
+                            fontSize: 12,
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF34D399),
                           ),
@@ -164,7 +285,7 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                   ),
                 ),
 
-                // Search Box
+                // SEARCH BAR
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
                   child: Container(
@@ -184,7 +305,7 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                       onChanged: filterLuckyDraws,
                       style: const TextStyle(fontSize: 14, color: textDark),
                       decoration: InputDecoration(
-                        hintText: 'Search by winner name, plot, or ticket...',
+                        hintText: 'Search by winner name or details...',
                         hintStyle: const TextStyle(fontSize: 13, color: textSecondary),
                         prefixIcon: const Icon(Icons.search_rounded, color: orangeAccent, size: 22),
                         suffixIcon: searchQuery.isNotEmpty
@@ -200,17 +321,17 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                   ),
                 ),
 
-                // Subtitle
+                // SUBTITLE COUNTER
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
                   child: Row(
                     children: [
-                      const Icon(Icons.discount_rounded, color: emeraldDiscount, size: 15),
+                      const Icon(Icons.verified_rounded, color: emeraldDiscount, size: 16),
                       const SizedBox(width: 6),
                       Text(
-                        'Users Awarded Plot Allotment Discounts (${filteredLuckyDrawList.length})',
+                        'Declared Lucky Draw Winners (${filteredLuckyDrawList.length})',
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.w700,
                           color: textSecondary,
                         ),
@@ -219,20 +340,54 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                   ),
                 ),
 
-                // Winners List
+                // WINNERS LIST
                 Expanded(
                   child: filteredLuckyDrawList.isEmpty
                       ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.search_off_rounded, size: 48, color: Colors.grey.shade400),
-                              const SizedBox(height: 10),
-                              Text(
-                                'No winners found matching "$searchQuery"',
-                                style: const TextStyle(fontSize: 14, color: textSecondary),
-                              ),
-                            ],
+                          child: Padding(
+                            padding: const EdgeInsets.all(28.0),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(20),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFF7EA),
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: const Color(0xFFF0D291), width: 1.5),
+                                  ),
+                                  child: Icon(
+                                    searchQuery.isNotEmpty ? Icons.search_off_rounded : Icons.hourglass_top_rounded,
+                                    size: 48,
+                                    color: orangeAccent,
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  searchQuery.isNotEmpty
+                                      ? 'No winners found matching "$searchQuery"'
+                                      : 'Draw Declared',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: textDark,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  searchQuery.isNotEmpty
+                                      ? 'Try searching by a different name or details.'
+                                      : 'The lucky draw results have been declared. Winner details will appear here as updated by the company.',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    height: 1.5,
+                                    color: textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : ListView.builder(
@@ -241,20 +396,17 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                           itemCount: filteredLuckyDrawList.length,
                           itemBuilder: (context, i) {
                             final item = filteredLuckyDrawList[i];
-                            final initials = item.name.isNotEmpty
-                                ? (item.name[0] + (item.surname.isNotEmpty ? item.surname[0] : '')).toUpperCase()
-                                : 'AW';
 
                             return Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: borderLight, width: 1.1),
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: borderLight, width: 1.2),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.03),
-                                    blurRadius: 8,
+                                    color: Colors.black.withValues(alpha: 0.04),
+                                    blurRadius: 10,
                                     offset: const Offset(0, 3),
                                   ),
                                 ],
@@ -264,160 +416,115 @@ class _LuckyDrawResultState extends State<LuckyDrawResult> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
+                                    // SECTION 1: USER IMAGE + SECTION 2: USER NAME
                                     Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
                                       children: [
-                                        // Avatar
-                                        Container(
-                                          width: 48,
-                                          height: 48,
-                                          decoration: BoxDecoration(
-                                            gradient: const LinearGradient(
-                                              colors: [Color(0xFF9951C9), Color(0xFFF06326)],
-                                            ),
-                                            shape: BoxShape.circle,
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: orangeAccent.withValues(alpha: 0.2),
-                                                blurRadius: 6,
-                                                offset: const Offset(0, 2),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Center(
-                                            child: Text(
-                                              initials,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 16,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
+                                        // 1. User Image
+                                        _buildUserImage(item),
                                         const SizedBox(width: 14),
 
-                                        // Name & Details
+                                        // 2. User Name
                                         Expanded(
                                           child: Column(
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              Text(
-                                                '${item.name} ${item.surname}'.trim(),
-                                                style: const TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: textDark,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
                                               Row(
                                                 children: [
-                                                  const Icon(Icons.location_on_rounded, size: 14, color: orangeAccent),
-                                                  const SizedBox(width: 4),
                                                   Expanded(
                                                     child: Text(
-                                                      '${item.allottedPlot} • ${item.projectName}',
+                                                      item.displayName,
                                                       style: const TextStyle(
-                                                        fontSize: 12.5,
-                                                        color: textSecondary,
-                                                        fontWeight: FontWeight.w500,
+                                                        fontSize: 17,
+                                                        fontWeight: FontWeight.w800,
+                                                        color: textDark,
+                                                        letterSpacing: 0.2,
                                                       ),
-                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: const Color(0xFFECFDF5),
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      border: Border.all(color: const Color(0xFFA7F3D0)),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF059669)),
+                                                        SizedBox(width: 4),
+                                                        Text(
+                                                          'Winner',
+                                                          style: TextStyle(
+                                                            fontSize: 11,
+                                                            fontWeight: FontWeight.w700,
+                                                            color: Color(0xFF059669),
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ),
                                                   ),
                                                 ],
                                               ),
+                                              const SizedBox(height: 4),
+                                              if (item.ticketNo.isNotEmpty)
+                                                Row(
+                                                  children: [
+                                                    const Icon(Icons.confirmation_number_outlined, size: 13, color: textSecondary),
+                                                    const SizedBox(width: 4),
+                                                    Text(
+                                                      'Ticket: ${item.ticketNo}',
+                                                      style: const TextStyle(
+                                                        fontSize: 12,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: textSecondary,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                             ],
                                           ),
                                         ),
                                       ],
                                     ),
 
-                                    const SizedBox(height: 12),
+                                    const SizedBox(height: 14),
 
-                                    // Full Width Allotment Discount Ribbon
+                                    // SECTION 3: COMPANY CUSTOM EDITABLE TEXT (FILLED BY COMPANY)
                                     Container(
                                       width: double.infinity,
-                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                       decoration: BoxDecoration(
-                                        color: emeraldDiscount.withValues(alpha: 0.10),
+                                        color: const Color(0xFFF0FDF4),
                                         borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(color: emeraldDiscount.withValues(alpha: 0.35)),
+                                        border: Border.all(color: const Color(0xFF86EFAC)),
                                       ),
                                       child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          const Row(
-                                            children: [
-                                              Icon(Icons.discount_rounded, color: emeraldDiscount, size: 18),
-                                              SizedBox(width: 8),
-                                              Text(
-                                                'Plot Allotment Discount',
-                                                style: TextStyle(
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Color(0xFF065F46),
-                                                ),
-                                              ),
-                                            ],
+                                          const Padding(
+                                            padding: EdgeInsets.only(top: 2),
+                                            child: Icon(
+                                              Icons.stars_rounded,
+                                              color: Color(0xFF16A34A),
+                                              size: 18,
+                                            ),
                                           ),
-                                          Text(
-                                            RegExp(r'₹\s*[\d,]+').firstMatch(item.discountAmount)?.group(0) ?? item.discountAmount,
-                                            style: const TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF047857),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              item.displayCustomText,
+                                              style: const TextStyle(
+                                                fontSize: 13.5,
+                                                fontWeight: FontWeight.w700,
+                                                color: Color(0xFF166534),
+                                                height: 1.4,
+                                              ),
                                             ),
                                           ),
                                         ],
                                       ),
-                                    ),
-
-                                    const SizedBox(height: 10),
-                                    const Divider(height: 1, color: borderLight),
-                                    const SizedBox(height: 8),
-
-                                    // Ticket & Status Footer
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Icon(Icons.confirmation_number_outlined, size: 14, color: textSecondary),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              'Ticket: ${item.ticketNo}',
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700,
-                                                color: textDark,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFF1F5F9),
-                                            borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(color: borderLight),
-                                          ),
-                                          child: const Row(
-                                            children: [
-                                              Icon(Icons.verified_rounded, size: 12, color: emeraldDiscount),
-                                              SizedBox(width: 4),
-                                              Text(
-                                                'Discount Awarded',
-                                                style: TextStyle(
-                                                  fontSize: 10.5,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Color(0xFF334155),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
                                     ),
                                   ],
                                 ),

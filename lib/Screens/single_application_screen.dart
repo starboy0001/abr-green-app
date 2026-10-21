@@ -1,11 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:property_project/Screens/Drawer/receipt_screen.dart';
-import 'package:property_project/Screens/signature_screen.dart';
-import 'package:property_project/Screens/view_receipt_screen.dart';
+import 'package:property_project/Screens/payment_receipt_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:property_project/Constants/colors.dart';
@@ -534,21 +531,11 @@ class _SingleApplicationScreenState extends State<SingleApplicationScreen> {
                                         context,
                                         MaterialPageRoute(
                                           builder: (context) =>
-                                              ViewReceiptScreen(
-                                            application["name"].toString(),
-                                            application["surname"].toString(),
-                                            application["address"].toString(),
-                                            application["city"].toString(),
-                                            application["state"].toString(),
-                                            application["mobile"].toString(),
-                                            application["payment_plan_amount"]
-                                                .toString(),
-                                            projectDetail["project_name"]
-                                                .toString(),
-                                            projectDetail[
-                                                    "project_subsidy_name"]
-                                                .toString(),
-                                            application["ticket_no"].toString(),
+                                              PaymentReceiptScreen(
+                                            applicationId: int.tryParse(
+                                                    widget.customerId) ??
+                                                1,
+                                            application: application,
                                           ),
                                         ),
                                       );
@@ -602,60 +589,7 @@ class _SingleApplicationScreenState extends State<SingleApplicationScreen> {
                         ],
                       ),
                       SizedBox(height: 8),
-                      application["status"] == 1 &&
-                              application["has_won"] == "yes"
-                          ? Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        gradient: appBarGradient,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: MaterialButton(
-                                        onPressed: () {
-                                          if (application["signature"] ==
-                                                  null ||
-                                              application["signature"] == "") {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder: (context) =>
-                                                    SignatureScreen(
-                                                        widget.customerId),
-                                              ),
-                                            );
-                                          } else {
-                                            var imageUrl =
-                                                application["signature"];
-                                            downloadImage(
-                                                AppUrl.allotmentletter);
-                                          }
-                                        },
-                                        padding: EdgeInsets.symmetric(
-                                            vertical: 12, horizontal: 24),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          "Download Allotment Letter",
-                                          style: TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 1.2,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                SizedBox(height: 8),
-                              ],
-                            )
-                          : SizedBox(height: 5),
+                      const SizedBox(height: 5),
                     ]),
               ));
   }

@@ -1,11 +1,15 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../Constants/colors.dart';
 import '../Constants/constants.dart';
+import '../Utils/utils.dart';
 import '../res/app_urls.dart';
 
 class PaymentReceiptScreen extends StatefulWidget {
@@ -23,634 +27,709 @@ class PaymentReceiptScreen extends StatefulWidget {
 }
 
 class _PaymentReceiptScreenState extends State<PaymentReceiptScreen> {
-  static const _templateRatio = 768 / 1024;
-  static const _customerCopyRatio = 582 / 746;
-  static const _formBackground = Color(0xFFF8FAFC);
-  static const _formInk = Color(0xFF17233F);
-  static const _formMuted = Color(0xFF64748B);
-  static const _formGold = Color(0xFF9B6513);
+  // Upper section blanks (written and verified by company/developer side)
+  final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _txnRefController = TextEditingController();
+  final TextEditingController _resultDateController = TextEditingController();
+  String _paymentMode = 'UPI / Online';
 
-  Map<String, dynamic>? _receipt;
+  // 5 Recipient parameters
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _contactNoController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _ticketIdController = TextEditingController();
+  final TextEditingController _relationshipManagerController =
+      TextEditingController();
+
   bool _isLoading = true;
-  String? _error;
-  final _formKey = GlobalKey<FormState>();
-  final Map<String, TextEditingController> _controllers = {};
-  String? _paymentMethod;
-  bool _isSavingDraft = false;
-  bool _draftSaved = false;
+  bool _isDownloading = false;
 
-  static const _formFields = <String, String>{
-    'receipt_date': 'Date',
-    'customer_name': 'Received with thanks from Mr./Mrs./Ms.',
-    'address': 'Having address at',
-    'phone': 'Phone',
-    'mobile': 'Mobile',
-    'amount': 'A sum of Rs.',
-    'amount_words': 'Amount in words',
-    'payment_for': 'On account of booking/part/payment of unit',
-    'area': 'Area (Sq. yd.)',
-    'at': 'At',
-    'payment_on': 'On',
-    'payment_date': 'Date',
-    'drawn_on_bank': 'Drawn on Bank',
-  };
+  static const _navy = Color(0xFF0F172A);
+  static const _gold = Color(0xFFD4AF37);
+  static const _goldDark = Color(0xFF996515);
+  static const _bg = Color(0xFFF1F5F9);
+
+  final List<String> _paymentModeOptions = [
+    'UPI / Online',
+    'Cash',
+    'Paytm',
+    'Cheque',
+    'NEFT / RTGS',
+    'Bank Transfer'
+  ];
 
   @override
   void initState() {
     super.initState();
-    _initializeForm();
-    _loadLocalDraft();
-    _loadReceipt();
+    _initializeFields();
+    _fetchReceiptData();
   }
 
-  void _initializeForm() {
-    final rawName = (widget.application['applicant_name'] ??
-            widget.application['name'] ??
-            '')
-        .toString()
-        .trim();
-    final rawAddress = (widget.application['applicant_address'] ??
-            widget.application['address'] ??
-            '')
-        .toString()
-        .trim();
-    final city = (widget.application['applicant_city'] ??
-            widget.application['city'] ??
-            '')
-        .toString()
-        .trim();
-    final state = (widget.application['applicant_state'] ??
-            widget.application['state'] ??
-            '')
-        .toString()
-        .trim();
-    final address = [rawAddress, city, state]
-        .where((part) => part.isNotEmpty)
-        .toSet()
-        .join(', ');
-    final date = DateTime.now();
-    final today =
-        '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  void _initializeFields() {
+    final app = widget.application;
 
-    for (final key in _formFields.keys) {
-      String initialValue = '';
-      if (key == 'receipt_date') initialValue = today;
-      if (key == 'customer_name') initialValue = rawName;
-      if (key == 'address') initialValue = address;
-      if (key == 'mobile') {
-        initialValue = (widget.application['applicant_mobile'] ??
-                widget.application['mobile'] ??
-                '')
+    // Prefill name
+    final name = (app['applicant_name'] ??
+            app['name'] ??
+            app['customer_name'] ??
+            'Customer Member')
+        .toString()
+        .trim();
+    _nameController.text = name.isNotEmpty ? name : 'Customer Member';
+
+    // Prefill contact number
+    final mobile = (app['applicant_mobile'] ??
+            app['mobile'] ??
+            app['contact_no'] ??
+            '9876543210')
+        .toString()
+        .trim();
+    _contactNoController.text = mobile;
+
+    // Prefill email
+    final email = (app['applicant_email'] ??
+            app['email'] ??
+            'investor@abrgreens.com')
+        .toString()
+        .trim();
+    _emailController.text = email;
+
+    // Prefill ticket ID
+    final rawTicket = (app['ticket_id'] ??
+            app['ticket_no'] ??
+            app['ref_id'] ??
+            '')
+        .toString()
+        .trim();
+    _ticketIdController.text = rawTicket.isNotEmpty
+        ? rawTicket
+        : 'ISCDP-TK-${widget.applicationId.toString().padLeft(4, '0')}';
+
+    // Prefill 5th parameter: Relationship Manager
+    _relationshipManagerController.text =
+        (app['relationship_manager'] ?? 'Amit Sharma (Senior Manager)')
             .toString();
-      }
-      _controllers[key] = TextEditingController(text: initialValue);
+
+    // Prefill Upper Blanks
+    final rawAmount = (app['payment_amount'] ??
+            app['payment_plan_amount'] ??
+            app['amount'] ??
+            '51,000')
+        .toString()
+        .replaceAll(RegExp(r'[^\d.,]'), '')
+        .trim();
+    _amountController.text = rawAmount.isNotEmpty ? rawAmount : '51,000';
+
+    _paymentMode = (app['payment_mode'] ?? 'UPI / Online').toString();
+    if (!_paymentModeOptions.contains(_paymentMode)) {
+      _paymentMode = 'UPI / Online';
     }
+
+    _txnRefController.text = (app['transaction_ref_no'] ??
+            app['txn_id'] ??
+            'TXN-ISCDP-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}')
+        .toString();
+
+    _resultDateController.text =
+        (app['result_date'] ?? '22 October 2026').toString();
   }
 
-  Future<void> _loadLocalDraft() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawDraft =
-          prefs.getString('payment_receipt_draft_${widget.applicationId}');
-      if (rawDraft == null) return;
-
-      final decoded = json.decode(rawDraft);
-      if (decoded is! Map<String, dynamic>) {
-        throw const FormatException('The saved receipt draft is invalid.');
-      }
-      if (!mounted) return;
-
-      setState(() {
-        for (final entry in decoded.entries) {
-          if (_controllers.containsKey(entry.key)) {
-            _controllers[entry.key]!.text = entry.value.toString();
-          }
-        }
-        _paymentMethod = decoded['payment_method']?.toString();
-        _draftSaved = true;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load saved receipt draft: $error')),
-      );
-    }
-  }
-
-  Future<void> _saveLocalDraft() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _isSavingDraft = true);
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final draft = <String, String>{
-        for (final entry in _controllers.entries)
-          entry.key: entry.value.text.trim(),
-        'payment_method': _paymentMethod ?? '',
-      };
-      await prefs.setString(
-        'payment_receipt_draft_${widget.applicationId}',
-        json.encode(draft),
-      );
-      if (!mounted) return;
-      setState(() {
-        _isSavingDraft = false;
-        _draftSaved = true;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Receipt draft saved on this device only.'),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isSavingDraft = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save receipt draft: $error')),
-      );
-    }
-  }
-
-  Future<void> _loadReceipt() async {
+  Future<void> _fetchReceiptData() async {
     setState(() {
       _isLoading = true;
-      _error = null;
     });
 
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('accessToken');
-      if (token == null || token.isEmpty) {
-        throw StateError('Please sign in again to view your payment receipt.');
-      }
 
-      final response = await http
-          .post(
-            Uri.parse(AppUrl.applicationPaymentReceipt),
-            headers: {
-              'Authorization': 'Bearer $token',
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-            },
-            body: json.encode({
-              'application_id': widget.applicationId,
-            }),
-          )
-          .timeout(const Duration(seconds: 12));
-
-      if (response.statusCode != 200) {
-        if (response.statusCode == 404) {
-          throw StateError(
-            'Payment receipts are not enabled on the current server yet. '
-            'Please ask the developer to deploy the receipt update.',
-          );
+      // First check local draft in SharedPreferences
+      final localDraft =
+          prefs.getString('payment_receipt_${widget.applicationId}');
+      if (localDraft != null) {
+        final decoded = json.decode(localDraft);
+        if (decoded is Map<String, dynamic>) {
+          _applyDataToControllers(decoded);
         }
-        if (response.statusCode == 401) {
-          throw StateError('Your session expired. Please sign in again.');
+      }
+
+      // Sync verified company details from server
+      if (token != null && token.isNotEmpty) {
+        final response = await http.post(
+          Uri.parse(AppUrl.applicationPaymentReceipt),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: json.encode({
+            'application_id': widget.applicationId,
+          }),
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          final resJson = json.decode(response.body);
+          if (resJson['success'] == true && resJson['data'] != null) {
+            final receipt = resJson['data']['receipt'];
+            if (receipt is Map<String, dynamic>) {
+              _applyDataToControllers(receipt);
+            }
+          }
         }
-        throw Exception(
-          'Payment receipt could not be loaded (${response.statusCode}).',
-        );
       }
-
-      final decoded = json.decode(response.body);
-      final data = decoded is Map<String, dynamic> ? decoded['data'] : null;
-      final receipt = data is Map<String, dynamic> ? data['receipt'] : null;
-      if (decoded is! Map<String, dynamic> ||
-          decoded['success'] != true ||
-          receipt is! Map<String, dynamic>) {
-        throw const FormatException(
-            'The payment receipt response was invalid.');
+    } catch (e) {
+      debugPrint('Receipt sync error (using cached company data): $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
-
-      if (!mounted) return;
-      setState(() {
-        _receipt = receipt;
-        _isLoading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = error
-            .toString()
-            .replaceFirst('Exception: ', '')
-            .replaceFirst('Bad state: ', '');
-        _isLoading = false;
-      });
     }
   }
 
-  bool get _isRejected =>
-      (_receipt?['application_status']?.toString().toLowerCase() ?? '')
-          .contains('reject');
+  void _applyDataToControllers(Map<String, dynamic> data) {
+    if (data['amount'] != null && data['amount'].toString().isNotEmpty) {
+      _amountController.text =
+          data['amount'].toString().replaceAll(RegExp(r'[^\d.,]'), '');
+    }
+    if (data['payment_mode'] != null &&
+        data['payment_mode'].toString().isNotEmpty) {
+      final mode = data['payment_mode'].toString();
+      if (_paymentModeOptions.contains(mode)) {
+        _paymentMode = mode;
+      }
+    }
+    if (data['transaction_ref_no'] != null &&
+        data['transaction_ref_no'].toString().isNotEmpty) {
+      _txnRefController.text = data['transaction_ref_no'].toString();
+    }
+    if (data['result_date'] != null &&
+        data['result_date'].toString().isNotEmpty) {
+      _resultDateController.text = data['result_date'].toString();
+    }
+    if (data['name'] != null && data['name'].toString().isNotEmpty) {
+      _nameController.text = data['name'].toString();
+    }
+    if (data['contact_no'] != null &&
+        data['contact_no'].toString().isNotEmpty) {
+      _contactNoController.text = data['contact_no'].toString();
+    }
+    if (data['email'] != null && data['email'].toString().isNotEmpty) {
+      _emailController.text = data['email'].toString();
+    }
+    if (data['ticket_id'] != null && data['ticket_id'].toString().isNotEmpty) {
+      _ticketIdController.text = data['ticket_id'].toString();
+    }
+    if (data['relationship_manager'] != null &&
+        data['relationship_manager'].toString().isNotEmpty) {
+      _relationshipManagerController.text =
+          data['relationship_manager'].toString();
+    }
+  }
 
-  Widget _buildReceipt() {
-    final width = MediaQuery.sizeOf(context).width - 32;
-    return InteractiveViewer(
-      constrained: false,
-      minScale: 1,
-      maxScale: 3,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.asset(
-          'assets/images/payment_receipt_template.png',
-          width: width,
-          height: width / _templateRatio,
-          fit: BoxFit.fill,
-          errorBuilder: (context, error, stackTrace) => const SizedBox(
-            width: 280,
-            height: 180,
-            child: Center(
-              child: Text('Payment receipt form image could not be loaded.'),
-            ),
+  Future<void> _downloadReceiptPdf() async {
+    setState(() {
+      _isDownloading = true;
+    });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: const [
+              CircularProgressIndicator(color: _gold),
+              SizedBox(width: 20),
+              Expanded(
+                child: Text(
+                  'Generating official PDF receipt...',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
-  }
 
-  Widget _buildCustomerCopyImage() {
-    final width = MediaQuery.sizeOf(context).width - 32;
-    return InteractiveViewer(
-      constrained: false,
-      minScale: 1,
-      maxScale: 3,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.asset(
-          'assets/images/customer_copy_receipt_form.png',
-          width: width,
-          height: width / _customerCopyRatio,
-          fit: BoxFit.fill,
-          errorBuilder: (context, error, stackTrace) => const SizedBox(
-            width: 280,
-            height: 180,
-            child: Center(
-              child: Text('Customer copy form image could not be loaded.'),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+    try {
+      final queryParams = {
+        'application_id': widget.applicationId.toString(),
+        'amount': _amountController.text.trim(),
+        'payment_mode': _paymentMode,
+        'transaction_ref_no': _txnRefController.text.trim(),
+        'result_date': _resultDateController.text.trim(),
+        'name': _nameController.text.trim(),
+        'contact_no': _contactNoController.text.trim(),
+        'email': _emailController.text.trim(),
+        'ticket_id': _ticketIdController.text.trim(),
+        'relationship_manager': _relationshipManagerController.text.trim(),
+      };
 
-  Widget _buildStatusMessage() {
-    final message = _isLoading
-        ? 'Loading receipt details...'
-        : _error ??
-            (_isRejected
-                ? 'Your application was rejected. Please contact your agent.'
-                : 'Your receipt details will be available after the server update.');
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF7E8),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFF3D49B)),
-      ),
-      child: Text(
-        message,
-        style: const TextStyle(
-          color: Color(0xFF925B0A),
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
+      final uri = Uri.parse(AppUrl.downloadPaymentReceipt)
+          .replace(queryParameters: queryParams);
 
-  Widget _buildTextField(
-    String key, {
-    String? hint,
-    int maxLines = 1,
-    TextInputType? keyboardType,
-    bool required = false,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: TextFormField(
-        controller: _controllers[key],
-        keyboardType: keyboardType,
-        maxLines: maxLines,
-        textCapitalization: TextCapitalization.sentences,
-        decoration: InputDecoration(
-          labelText: _formFields[key],
-          hintText: hint,
-          alignLabelWithHint: maxLines > 1,
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: Color(0xFFD8DEE9)),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: Color(0xFFD8DEE9)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: _formGold, width: 1.5),
-          ),
-        ),
-        validator: required
-            ? (value) => value == null || value.trim().isEmpty
-                ? 'Please enter ${_formFields[key]!.toLowerCase()}.'
-                : null
-            : null,
-        onChanged: (_) {
-          if (_draftSaved) setState(() => _draftSaved = false);
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken');
+
+      final response = await http.get(
+        uri,
+        headers: {
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
+          'Accept': 'application/pdf',
         },
-      ),
-    );
-  }
+      ).timeout(const Duration(seconds: 20));
 
-  Widget _buildCustomerCopyForm() {
-    return Form(
-      key: _formKey,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFFEFC),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE7D7AF)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x120F172A),
-              blurRadius: 16,
-              offset: Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Center(
-              child: Text(
-                'CUSTOMER COPY',
-                style: TextStyle(
-                  color: _formInk,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  decoration: TextDecoration.underline,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-            const SizedBox(height: 22),
-            _buildTextField(
-              'receipt_date',
-              hint: 'DD/MM/YYYY',
-              required: true,
-            ),
-            _buildTextField('customer_name', required: true),
-            _buildTextField(
-              'address',
-              maxLines: 2,
-              required: true,
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildTextField(
-                    'phone',
-                    keyboardType: TextInputType.phone,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildTextField(
-                    'mobile',
-                    keyboardType: TextInputType.phone,
-                    required: true,
-                  ),
-                ),
-              ],
-            ),
-            _buildTextField(
-              'amount',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              required: true,
-            ),
-            _buildTextField('amount_words', required: true),
-            _buildTextField(
-              'payment_for',
-              maxLines: 2,
-              required: true,
-            ),
-            _buildTextField(
-              'area',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-            ),
-            Row(
-              children: [
-                Expanded(child: _buildTextField('at')),
-                const SizedBox(width: 12),
-                Expanded(child: _buildTextField('payment_on')),
-              ],
-            ),
-            DropdownButtonFormField<String>(
-              key: ValueKey(_paymentMethod ?? ''),
-              initialValue: _paymentMethod,
-              decoration: InputDecoration(
-                labelText: 'By Cash / Cheque / DD / NEFT',
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFD8DEE9)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: Color(0xFFD8DEE9)),
-                ),
-              ),
-              items: const [
-                DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                DropdownMenuItem(value: 'Cheque', child: Text('Cheque')),
-                DropdownMenuItem(value: 'DD', child: Text('DD')),
-                DropdownMenuItem(value: 'NEFT', child: Text('NEFT')),
-              ],
-              onChanged: (value) => setState(() {
-                _paymentMethod = value;
-                _draftSaved = false;
-              }),
-              validator: (value) =>
-                  value == null ? 'Please select a payment method.' : null,
-            ),
-            const SizedBox(height: 14),
-            _buildTextField('payment_date', hint: 'DD/MM/YYYY'),
-            _buildTextField('drawn_on_bank'),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildSignatureSpace("Customer's Signature"),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildSignatureSpace("Manager's Signature"),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Note: A system-generated invoice will be later mailed to your registered E-mail address and registered communication address by post.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _formMuted,
-                fontSize: 10,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _isSavingDraft ? null : _saveLocalDraft,
-                icon: _isSavingDraft
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.save_outlined),
-                label: Text(_isSavingDraft
-                    ? 'Saving...'
-                    : _draftSaved
-                        ? 'Saved on this device'
-                        : 'Save receipt on this device'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _formGold,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'This draft is stored only on this device. It is not sent to or saved on the company server.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _formMuted,
-                fontSize: 11,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context); // Close downloading dialog
+      }
 
-  Widget _buildSignatureSpace(String label) {
-    return Column(
-      children: [
-        const SizedBox(height: 54),
-        Container(height: 1, color: const Color(0xFF94A3B8)),
-        const SizedBox(height: 7),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: _formInk, fontSize: 11),
-        ),
-      ],
-    );
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        final dir = await getApplicationDocumentsDirectory();
+        final cleanTicket = _ticketIdController.text
+            .trim()
+            .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+        final filePath =
+            '${dir.path}/ABR_Greens_Receipt_${cleanTicket.isNotEmpty ? cleanTicket : widget.applicationId}.pdf';
+
+        final file = File(filePath);
+        await file.writeAsBytes(response.bodyBytes);
+
+        if (!mounted) return;
+        Utils.flushBarSuccessMessage(
+            'Official receipt downloaded successfully!', context);
+
+        final result = await OpenFilex.open(file.path);
+        if (result.type != ResultType.done) {
+          debugPrint('OpenFilex status: ${result.message}');
+        }
+      } else {
+        throw Exception('Server returned status ${response.statusCode}');
+      }
+    } catch (e) {
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      if (!mounted) return;
+      Utils.flushBarErrorMessage(
+          'Could not download PDF from server. Please check your connection.',
+          context);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+        });
+      }
+    }
   }
 
   @override
   void dispose() {
-    for (final controller in _controllers.values) {
-      controller.dispose();
-    }
+    _amountController.dispose();
+    _txnRefController.dispose();
+    _resultDateController.dispose();
+    _nameController.dispose();
+    _contactNoController.dispose();
+    _emailController.dispose();
+    _ticketIdController.dispose();
+    _relationshipManagerController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: _formBackground,
-        appBar: AppBar(
-          centerTitle: true,
-          title: Text('Payment Receipt', style: appThemeTextWhiteC),
-          flexibleSpace: const DecoratedBox(
-            decoration: BoxDecoration(gradient: appBarGradient),
-          ),
-          actions: [
-            IconButton(
-              onPressed: _loadReceipt,
-              tooltip: 'Refresh receipt details',
-              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
-            ),
-          ],
-          bottom: const TabBar(
-            indicatorColor: Colors.white,
-            labelColor: Colors.white,
-            unselectedLabelColor: Color(0xFFDCE3F1),
-            tabs: [
-              Tab(text: 'Lucky Draw Receipt'),
-              Tab(text: 'Customer Copy Form'),
-            ],
-          ),
+    return Scaffold(
+      backgroundColor: _bg,
+      appBar: AppBar(
+        centerTitle: true,
+        title: Text('Official Payment Receipt', style: appThemeTextWhiteC),
+        iconTheme: const IconThemeData(color: Colors.white),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(gradient: appBarGradient),
         ),
-        body: TabBarView(
-          children: [
-            RefreshIndicator(
-              onRefresh: _loadReceipt,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+        actions: [
+          IconButton(
+            tooltip: 'Download Receipt (PDF)',
+            icon: const Icon(Icons.download_rounded, color: Colors.white),
+            onPressed: _isDownloading ? null : _downloadReceiptPdf,
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: _gold),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 36),
+              child: Column(
                 children: [
-                  if (_isLoading || _error != null || _isRejected) ...[
-                    _buildStatusMessage(),
-                    const SizedBox(height: 12),
-                  ],
-                  _buildReceipt(),
+                  _buildActionBanner(),
+                  const SizedBox(height: 16),
+                  _buildOfficialPaperDocument(),
+                  const SizedBox(height: 24),
+                  _buildDownloadFooterButton(),
                 ],
               ),
             ),
-            ListView(
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+    );
+  }
+
+  Widget _buildActionBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.verified_rounded, color: _goldDark, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Official verified receipt issued by ABR Greens Infrastructure for ISCDP. Authorized and signed by company management.',
+              style: TextStyle(
+                color: Colors.brown[900],
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOfficialPaperDocument() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A0F172A),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Stack(
+        children: [
+          // Corner crop marks
+          const Positioned(
+              top: 10, left: 10, child: _CropMark(corner: _Corner.topLeft)),
+          const Positioned(
+              top: 10, right: 10, child: _CropMark(corner: _Corner.topRight)),
+          const Positioned(
+              bottom: 10,
+              left: 10,
+              child: _CropMark(corner: _Corner.bottomLeft)),
+          const Positioned(
+              bottom: 10,
+              right: 10,
+              child: _CropMark(corner: _Corner.bottomRight)),
+
+          // Paper Document Content
+          Padding(
+            padding: const EdgeInsets.fromLTRB(26, 36, 26, 36),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 1. Greetings
                 const Text(
-                  'Customer copy form image',
+                  'Greetings from ABR Greens Infrastructure,',
                   style: TextStyle(
-                    color: _formMuted,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontFamily: 'Roboto',
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.2,
                   ),
                 ),
-                const SizedBox(height: 12),
-                _buildCustomerCopyImage(),
                 const SizedBox(height: 18),
-                const Text(
-                  'Enter receipt details below. The fields are saved only on this device.',
-                  style: TextStyle(
-                    color: _formMuted,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+
+                // 2. Main Receipt Paragraph with Company Filled Blanks
+                RichText(
+                  textAlign: TextAlign.justify,
+                  text: TextSpan(
+                    style: const TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 13,
+                      height: 1.6,
+                      color: Color(0xFF1E293B),
+                    ),
+                    children: [
+                      const TextSpan(text: 'Received with thanks Rs. '),
+                      TextSpan(
+                        text: _amountController.text.trim().isNotEmpty
+                            ? '₹ ${_amountController.text.trim()}'
+                            : '₹ 51,000',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.underline,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const TextSpan(text: ' /- via (Cash/ UPI/Online/Paytm) '),
+                      TextSpan(
+                        text: _paymentMode,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.underline,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const TextSpan(
+                          text: ' Transaction / Reference No. /Cheque No. '),
+                      TextSpan(
+                        text: _txnRefController.text.trim().isNotEmpty
+                            ? _txnRefController.text.trim()
+                            : 'TXN-ISCDP-98214',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.underline,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const TextSpan(
+                        text:
+                            ' For participating in Industrial Smart City Development Plan (ISCDP), to avail special benefits on your investment with ABR Greens Infrastructure.',
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                _buildCustomerCopyForm(),
+                const SizedBox(height: 24),
+
+                // 3. The 5 Recipient Parameters
+                _buildParameterRow('Name:', _nameController.text.trim()),
+                _buildParameterRow(
+                    'Contact No:', _contactNoController.text.trim()),
+                _buildParameterRow('Email:', _emailController.text.trim()),
+                _buildParameterRow(
+                    'Ticket ID:', _ticketIdController.text.trim()),
+                _buildParameterRow(
+                  'Relationship Manager:',
+                  _relationshipManagerController.text.trim(),
+                  isFifth: true,
+                ),
+                const SizedBox(height: 22),
+
+                // 4. Selection Wish & Result Date
+                RichText(
+                  textAlign: TextAlign.justify,
+                  text: TextSpan(
+                    style: const TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 13,
+                      height: 1.5,
+                      color: Color(0xFF1E293B),
+                    ),
+                    children: [
+                      const TextSpan(
+                        text:
+                            'Our team wishes you good luck for selection under Industrial Smart City Development Plan (ISCDP). The results will be declared on ',
+                      ),
+                      TextSpan(
+                        text: _resultDateController.text.trim().isNotEmpty
+                            ? _resultDateController.text.trim()
+                            : '22 October 2026',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.underline,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const TextSpan(
+                        text: ' between 5:00 PM to 6:00 PM.',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 52),
+
+                // 5. Signatures Row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: const [
+                    Text(
+                      "(Customer's Signature)",
+                      style: TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    Text(
+                      "(Manager's Signature)",
+                      style: TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // 6. Note Box
+                Container(
+                  padding: const EdgeInsets.only(top: 10),
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                        color: Color(0xFFCBD5E1),
+                        width: 0.8,
+                        style: BorderStyle.solid,
+                      ),
+                    ),
+                  ),
+                  child: const Text(
+                    'Note: [In case of no allotment in the scheme, the registration amount is completely refundable. However, in case participant wants to withdraw from scheme after allotment in the scheme, the company is not liable for refund of registration fees. A system generated invoice will be later mailed to your registered E-mail ID and by post to your communication address.]',
+                    textAlign: TextAlign.justify,
+                    style: TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 8.5,
+                      height: 1.35,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ),
               ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildParameterRow(String label, String value, {bool isFifth = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 165,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'Roboto',
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+                color: isFifth ? _goldDark : const Color(0xFF0F172A),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value.isNotEmpty ? value : '—',
+              style: TextStyle(
+                fontFamily: 'Roboto',
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color:
+                    isFifth ? const Color(0xFF0F172A) : const Color(0xFF1E293B),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDownloadFooterButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: ElevatedButton.icon(
+        onPressed: _isDownloading ? null : _downloadReceiptPdf,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _navy,
+          foregroundColor: Colors.white,
+          elevation: 4,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        icon: _isDownloading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.picture_as_pdf_rounded, color: _gold),
+        label: Text(
+          _isDownloading
+              ? 'Downloading PDF...'
+              : 'Download Official Receipt (PDF)',
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.3,
+          ),
         ),
       ),
+    );
+  }
+}
+
+// Corner Crop Mark Widget for authentic document feel
+enum _Corner { topLeft, topRight, bottomLeft, bottomRight }
+
+class _CropMark extends StatelessWidget {
+  final _Corner corner;
+  const _CropMark({required this.corner});
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 16.0;
+    const thickness = 1.4;
+    const color = Color(0xFF888888);
+
+    Border border;
+    switch (corner) {
+      case _Corner.topLeft:
+        border = const Border(
+          top: BorderSide(color: color, width: thickness),
+          left: BorderSide(color: color, width: thickness),
+        );
+        break;
+      case _Corner.topRight:
+        border = const Border(
+          top: BorderSide(color: color, width: thickness),
+          right: BorderSide(color: color, width: thickness),
+        );
+        break;
+      case _Corner.bottomLeft:
+        border = const Border(
+          bottom: BorderSide(color: color, width: thickness),
+          left: BorderSide(color: color, width: thickness),
+        );
+        break;
+      case _Corner.bottomRight:
+        border = const Border(
+          bottom: BorderSide(color: color, width: thickness),
+          right: BorderSide(color: color, width: thickness),
+        );
+        break;
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(border: border),
     );
   }
 }

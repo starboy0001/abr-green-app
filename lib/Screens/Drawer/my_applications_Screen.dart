@@ -9,8 +9,8 @@ import '../../Constants/constants.dart';
 import '../../Constants/reusable_widgets.dart';
 import '../../res/app_urls.dart';
 import '../client_application_details_screen.dart';
+import '../payment_receipt_screen.dart';
 import '../single_application_screen.dart';
-import 'receipt_screen.dart';
 
 class MyApplicationScreen extends StatefulWidget {
   final String item;
@@ -282,8 +282,12 @@ class _MyApplicationScreenState extends State<MyApplicationScreen> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) =>
-                                    ReceiptScreen(item: 'RECEIPT'),
+                                builder: (context) => PaymentReceiptScreen(
+                                  applicationId:
+                                      int.tryParse(app['id']?.toString() ?? '1') ??
+                                          1,
+                                  application: app,
+                                ),
                               ),
                             );
                           },
@@ -293,30 +297,6 @@ class _MyApplicationScreenState extends State<MyApplicationScreen> {
                             backgroundColor: _navy,
                             foregroundColor: Colors.white,
                             elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => SingleApplicationScreen(
-                                    app['id'].toString()),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.file_download_outlined,
-                              size: 16),
-                          label: const Text('Allotment'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: _green,
-                            side: const BorderSide(color: _green),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),

@@ -1,9 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:property_project/Screens/Auth%20Screen/login_screen.dart';
 import 'package:property_project/Screens/Drawer/lucky_draw_screen.dart';
 import 'package:property_project/Screens/Drawer/my_applications_Screen.dart';
 import 'package:property_project/Screens/Drawer/receipt_screen.dart';
 import 'package:property_project/Screens/home_screen.dart';
+import 'package:property_project/Screens/lucky_draw_results.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -14,6 +17,7 @@ import '../Screens/Drawer/profile_screen.dart';
 import '../Screens/create_visit_screen.dart';
 import '../Screens/referals_screen.dart';
 import '../Screens/resale_screen.dart';
+import '../res/app_urls.dart';
 import 'colors.dart';
 
 class AppDrawer extends StatefulWidget {
@@ -24,40 +28,71 @@ class AppDrawer extends StatefulWidget {
 }
 
 class _AppDrawerState extends State<AppDrawer> {
-  final List<String> drawerItems = [
-    'Home',
-    'MY PROFILE',
-    'MY APPLICATIONS',
-    'LUCKY DRAW',
-    'CONTACT US',
-    'PAYMENT DETAILS',
-    'ABOUT US',
-    'RECEIPT',
-    'REFERALS',
-    'RESALE',
-    'SITE VISIT',
-    'SIGN OUT',
-  ];
-
-  final List<IconData> drawerIcons = [
-    Icons.home,
-    Icons.person_outline,
-    Icons.apps,
-    Icons.redeem,
-    Icons.headphones,
-    Icons.attach_money,
-    Icons.error_outline,
-    Icons.description_outlined,
-    Icons.person_add,
-    Icons.swap_horiz,
-    Icons.location_on,
-    Icons.logout_outlined,
-  ];
-
+  bool _isDrawDeclared = true;
   int selectedIndex = 0;
 
   @override
+  void initState() {
+    super.initState();
+    _checkDrawDeclaredStatus();
+  }
+
+  Future<void> _checkDrawDeclaredStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('accessToken') ?? '';
+      final res = await http.post(
+        Uri.parse(AppUrl.luckyDrawResults),
+        headers: {
+          if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        final status = data['data']?['draw_status']?.toString() ?? data['data']?['status']?.toString();
+        final declared = data['data']?['results_declared'] == true || status == 'declared';
+        if (mounted && _isDrawDeclared != declared) {
+          setState(() {
+            _isDrawDeclared = declared;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final List<String> drawerItems = [
+      'Home',
+      'MY PROFILE',
+      'MY APPLICATIONS',
+      'LUCKY DRAW',
+      if (_isDrawDeclared) 'DRAW DECLARED',
+      'CONTACT US',
+      'PAYMENT DETAILS',
+      'ABOUT US',
+      'REFERALS',
+      'RESALE',
+      'SITE VISIT',
+      'SIGN OUT',
+    ];
+
+    final List<IconData> drawerIcons = [
+      Icons.home,
+      Icons.person_outline,
+      Icons.apps,
+      Icons.redeem,
+      if (_isDrawDeclared) Icons.emoji_events_rounded,
+      Icons.headphones,
+      Icons.attach_money,
+      Icons.error_outline,
+      Icons.person_add,
+      Icons.swap_horiz,
+      Icons.location_on,
+      Icons.logout_outlined,
+    ];
+
     return Drawer(
       child: Column(
         children: [
@@ -72,85 +107,96 @@ class _AppDrawerState extends State<AppDrawer> {
               padding: EdgeInsets.only(top: 0),
               itemCount: drawerItems.length,
               itemBuilder: (context, index) {
+                final itemTitle = drawerItems[index];
                 return ListTile(
                   selectedTileColor: selectedColor,
-                  leading: Icon(drawerIcons[index]),
-                  title: Text(drawerItems[index]),
+                  leading: Icon(
+                    drawerIcons[index],
+                    color: itemTitle == 'DRAW DECLARED' ? const Color(0xFFE7AA33) : null,
+                  ),
+                  title: Text(
+                    itemTitle,
+                    style: itemTitle == 'DRAW DECLARED'
+                        ? const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFFB45309),
+                            letterSpacing: 0.3,
+                          )
+                        : null,
+                  ),
                   selected: selectedIndex == index,
                   onTap: () {
                     setState(() {
                       selectedIndex = index; // Update the selected index
                     });
-                    if (index == 0) {
+                    if (itemTitle == 'Home') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => HomeScreen(
-                                    item: drawerItems[index],
+                                    item: itemTitle,
                                   )));
-                    } else if (index == 1) {
+                    } else if (itemTitle == 'MY PROFILE') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => ProfileScreen(
-                                    item: drawerItems[index],
+                                    item: itemTitle,
                                   )));
-                    } else if (index == 2) {
+                    } else if (itemTitle == 'MY APPLICATIONS') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => MyApplicationScreen(
-                                    item: drawerItems[index],
+                                    item: itemTitle,
                                   )));
-                    } else if (index == 3) {
+                    } else if (itemTitle == 'LUCKY DRAW') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => LuckyDrawScreen(
-                                    item: drawerItems[index],
+                                    item: itemTitle,
                                   )));
-                    } else if (index == 4) {
+                    } else if (itemTitle == 'DRAW DECLARED') {
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const LuckyDrawResult()));
+                    } else if (itemTitle == 'CONTACT US') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => const ContactUsScreen()));
-                    } else if (index == 5) {
+                    } else if (itemTitle == 'PAYMENT DETAILS') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => PaymentScreen(
-                                    item: drawerItems[index],
+                                    item: itemTitle,
                                   )));
-                    } else if (index == 6) {
+                    } else if (itemTitle == 'ABOUT US') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => AboutUsScreen(
-                                    item: drawerItems[index],
+                                    item: itemTitle,
                                   )));
-                    } else if (index == 7) {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => ReceiptScreen(
-                                    item: drawerItems[index],
-                                  )));
-                    } else if (index == 8) {
+                    } else if (itemTitle == 'REFERALS') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => ReferalsScreen()));
-                    } else if (index == 9) {
+                    } else if (itemTitle == 'RESALE') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => ResaleScreen()));
-                    } else if (index == 10) {
+                    } else if (itemTitle == 'SITE VISIT') {
                       Navigator.push(
                           context,
                           MaterialPageRoute(
                               builder: (context) => CreateVisitScreen()));
-                    } else if (index == 11) {
+                    } else if (itemTitle == 'SIGN OUT') {
                       showDialog(
                         context: context,
                         builder: (BuildContext context) {

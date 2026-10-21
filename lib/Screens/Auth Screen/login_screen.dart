@@ -301,7 +301,11 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (context) => HomeScreen()),
             (Route<dynamic> route) => false);
-        await firebaseApi.pushFCM();
+        try {
+          await firebaseApi.pushFCM();
+        } catch (fcmErr) {
+          debugPrint('FCM push token skipped: $fcmErr');
+        }
       } else if (response.statusCode == 400) {
         Utils.flushBarErrorMessage('Something went wrong!', context);
         setState(() {

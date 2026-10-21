@@ -23,6 +23,12 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.1.0'
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace "com.infrastructure.AbrGreens"
     compileSdkVersion flutter.compileSdkVersion
@@ -54,9 +60,31 @@ android {
         versionName flutterVersionName
     }
 
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                def storeFilePath = keystoreProperties['storeFile']
+                if (storeFilePath) {
+                    def keystoreFile = file(storeFilePath)
+                    if (!keystoreFile.exists()) {
+                        keystoreFile = rootProject.file(storeFilePath)
+                    }
+                    storeFile keystoreFile
+                }
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+            }
         }
     }
 }

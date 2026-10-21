@@ -20,23 +20,12 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
-    with TickerProviderStateMixin {
-  // ignore: unused_field
-  late final AnimationController _controller =
-      AnimationController(duration: const Duration(seconds: 2), vsync: this)
-        ..repeat();
+class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
 
     startXeeProcesses();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   startXeeProcesses() {
